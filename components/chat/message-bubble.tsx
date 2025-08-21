@@ -14,33 +14,73 @@ interface MessageBubbleProps {
 export function MessageBubble({ message, isStreaming, onCitationClick }: MessageBubbleProps) {
   const isUser = message.role === 'user'
 
-  // Function to render content with clickable citations
-  const renderContentWithCitations = (content: string) => {
+  // Function to convert content with citations into React elements
+  const renderContentWithCitations = () => {
     if (!message.citations || message.citations.length === 0) {
-      return content
+      return (
+        <ReactMarkdown
+          components={{
+            p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+            code: ({ children }) => (
+              <code className="bg-muted px-1 py-0.5 rounded text-xs">
+                {children}
+              </code>
+            ),
+            pre: ({ children }) => (
+              <pre className="bg-muted p-2 rounded-md overflow-x-auto text-xs">
+                {children}
+              </pre>
+            ),
+            ul: ({ children }) => <ul className="list-disc list-inside mb-2">{children}</ul>,
+            ol: ({ children }) => <ol className="list-decimal list-inside mb-2">{children}</ol>,
+            li: ({ children }) => <li className="mb-1">{children}</li>,
+            blockquote: ({ children }) => (
+              <blockquote className="border-l-4 border-primary pl-4 italic mb-2">
+                {children}
+              </blockquote>
+            ),
+            a: ({ href, children }) => (
+              <a 
+                href={href} 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="text-primary hover:underline"
+              >
+                {children}
+              </a>
+            ),
+          }}
+        >
+          {message.content}
+        </ReactMarkdown>
+      )
     }
 
-    // Split content by citation patterns and render as JSX
+    // Process content with citations
     const parts = []
     let lastIndex = 0
-    
-    // Find all citations in the content
     const citationRegex = /\[(\d+)\]/g
     let match
 
-    while ((match = citationRegex.exec(content)) !== null) {
+    while ((match = citationRegex.exec(message.content)) !== null) {
       const citationNumber = parseInt(match[1])
       const citation = message.citations.find(c => c.id === citationNumber)
       
       if (citation) {
         // Add text before citation
         if (match.index > lastIndex) {
-          parts.push(content.slice(lastIndex, match.index))
+          parts.push(message.content.slice(lastIndex, match.index))
         }
         
-        // Add citation as clickable element
+        // Add citation button
         parts.push(
-          `__CITATION_${citation.id}__`
+          <button
+            key={`citation-${citationNumber}-${match.index}`}
+            className="citation-link"
+            onClick={() => onCitationClick?.(citation)}
+          >
+            [{citationNumber}]
+          </button>
         )
         
         lastIndex = match.index + match[0].length
@@ -48,63 +88,36 @@ export function MessageBubble({ message, isStreaming, onCitationClick }: Message
     }
     
     // Add remaining text
-    if (lastIndex < content.length) {
-      parts.push(content.slice(lastIndex))
+    if (lastIndex < message.content.length) {
+      parts.push(message.content.slice(lastIndex))
     }
     
-    return parts.join('')
-  }
-
-  // Process children to replace citation placeholders with clickable elements
-  const processChildrenForCitations = (children: any): any => {
-    if (typeof children === 'string') {
-      const parts = []
-      let lastIndex = 0
-      const citationRegex = /__CITATION_(\d+)__/g
-      let match
-
-      while ((match = citationRegex.exec(children)) !== null) {
-        const citationId = parseInt(match[1])
-        const citation = message.citations?.find(c => c.id === citationId)
-        
-        if (citation) {
-          // Add text before citation
-          if (match.index > lastIndex) {
-            parts.push(children.slice(lastIndex, match.index))
+    return (
+      <div>
+        {parts.map((part, index) => {
+          if (typeof part === 'string') {
+            return (
+              <ReactMarkdown
+                key={index}
+                components={{
+                  p: ({ children }) => <span>{children}</span>,
+                  code: ({ children }) => (
+                    <code className="bg-muted px-1 py-0.5 rounded text-xs">
+                      {children}
+                    </code>
+                  ),
+                  strong: ({ children }) => <strong>{children}</strong>,
+                  em: ({ children }) => <em>{children}</em>,
+                }}
+              >
+                {part}
+              </ReactMarkdown>
+            )
           }
-          
-          // Add citation button
-          parts.push(
-            <button
-              key={`citation-${citationId}`}
-              className="citation-link"
-              onClick={() => onCitationClick?.(citation)}
-            >
-              [{citationId}]
-            </button>
-          )
-          
-          lastIndex = match.index + match[0].length
-        }
-      }
-      
-      // Add remaining text
-      if (lastIndex < children.length) {
-        parts.push(children.slice(lastIndex))
-      }
-      
-      return parts.length > 1 ? parts : children
-    }
-    
-    if (Array.isArray(children)) {
-      return children.map((child, index) => 
-        typeof child === 'string' 
-          ? processChildrenForCitations(child)
-          : child
-      )
-    }
-    
-    return children
+          return part
+        })}
+      </div>
+    )
   }
 
   // Handle citation clicks (keeping for backward compatibility)
@@ -149,45 +162,7 @@ export function MessageBubble({ message, isStreaming, onCitationClick }: Message
             <p className="text-sm whitespace-pre-wrap">{message.content}</p>
           ) : (
             <div className="prose prose-sm max-w-none dark:prose-invert">
-              <ReactMarkdown
-                components={{
-                  p: ({ children }) => (
-                    <p className="mb-2 last:mb-0">
-                      {processChildrenForCitations(children)}
-                    </p>
-                  ),
-                  code: ({ children }) => (
-                    <code className="bg-muted px-1 py-0.5 rounded text-xs">
-                      {children}
-                    </code>
-                  ),
-                  pre: ({ children }) => (
-                    <pre className="bg-muted p-2 rounded-md overflow-x-auto text-xs">
-                      {children}
-                    </pre>
-                  ),
-                  ul: ({ children }) => <ul className="list-disc list-inside mb-2">{children}</ul>,
-                  ol: ({ children }) => <ol className="list-decimal list-inside mb-2">{children}</ol>,
-                  li: ({ children }) => <li className="mb-1">{processChildrenForCitations(children)}</li>,
-                  blockquote: ({ children }) => (
-                    <blockquote className="border-l-4 border-primary pl-4 italic mb-2">
-                      {processChildrenForCitations(children)}
-                    </blockquote>
-                  ),
-                  a: ({ href, children }) => (
-                    <a 
-                      href={href} 
-                      target="_blank" 
-                      rel="noopener noreferrer"
-                      className="text-primary hover:underline"
-                    >
-                      {children}
-                    </a>
-                  ),
-                }}
-              >
-                {renderContentWithCitations(message.content)}
-              </ReactMarkdown>
+              {renderContentWithCitations()}
               {isStreaming && (
                 <span className="loading-dots">
                   <span>.</span>

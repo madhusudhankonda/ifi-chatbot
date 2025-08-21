@@ -1,6 +1,6 @@
 'use client'
 
-import { ChatMessage } from '@/types'
+import { ChatMessage, Citation } from '@/types'
 import { cn } from '@/lib/utils'
 import { Bot, User } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
@@ -8,10 +8,42 @@ import ReactMarkdown from 'react-markdown'
 interface MessageBubbleProps {
   message: ChatMessage
   isStreaming?: boolean
+  onCitationClick?: (citation: Citation) => void
 }
 
-export function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
+export function MessageBubble({ message, isStreaming, onCitationClick }: MessageBubbleProps) {
   const isUser = message.role === 'user'
+
+  // Function to render content with clickable citations
+  const renderContentWithCitations = (content: string) => {
+    if (!message.citations || message.citations.length === 0) {
+      return content
+    }
+
+    // Replace [1], [2], etc. with clickable citation links
+    let processedContent = content
+    message.citations.forEach((citation) => {
+      const citationRegex = new RegExp(`\\[${citation.id}\\]`, 'g')
+      processedContent = processedContent.replace(
+        citationRegex,
+        `<button class="citation-link" data-citation-id="${citation.id}">[${citation.id}]</button>`
+      )
+    })
+
+    return processedContent
+  }
+
+  // Handle citation clicks
+  const handleCitationClick = (event: React.MouseEvent) => {
+    const target = event.target as HTMLElement
+    if (target.classList.contains('citation-link')) {
+      const citationId = parseInt(target.getAttribute('data-citation-id') || '0')
+      const citation = message.citations?.find(c => c.id === citationId)
+      if (citation && onCitationClick) {
+        onCitationClick(citation)
+      }
+    }
+  }
 
   return (
     <div className={cn(
@@ -42,7 +74,10 @@ export function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
           {isUser ? (
             <p className="text-sm whitespace-pre-wrap">{message.content}</p>
           ) : (
-            <div className="prose prose-sm max-w-none dark:prose-invert">
+            <div 
+              className="prose prose-sm max-w-none dark:prose-invert"
+              onClick={handleCitationClick}
+            >
               <ReactMarkdown
                 components={{
                   p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
@@ -76,7 +111,7 @@ export function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
                   ),
                 }}
               >
-                {message.content}
+                {renderContentWithCitations(message.content)}
               </ReactMarkdown>
               {isStreaming && (
                 <span className="loading-dots">

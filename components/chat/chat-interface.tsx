@@ -1,13 +1,13 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { ChatMessage, User } from '@/types'
+import { ChatMessage, User, Citation } from '@/types'
 import { MessageBubble } from './message-bubble'
 import { ChatInput } from './chat-input'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { Trash2, MessageSquare } from 'lucide-react'
+import { Trash2, MessageSquare, X } from 'lucide-react'
 import { generateId, generateUUID } from '@/lib/utils'
 
 interface ChatInterfaceProps {
@@ -19,6 +19,8 @@ export function ChatInterface({ user }: ChatInterfaceProps) {
   const [isLoading, setIsLoading] = useState(false)
   const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null)
   const [sessionId] = useState<string>(() => generateUUID()) // Generate session ID once
+  const [selectedCitation, setSelectedCitation] = useState<Citation | null>(null)
+  const [showCitationPanel, setShowCitationPanel] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   const scrollToBottom = () => {
@@ -79,6 +81,8 @@ export function ChatInterface({ user }: ChatInterfaceProps) {
 
       if (reader) {
         let accumulatedContent = ''
+        let citations: Citation[] = []
+        let citationsReceived = false
         
         while (true) {
           const { done, value } = await reader.read()
@@ -86,12 +90,32 @@ export function ChatInterface({ user }: ChatInterfaceProps) {
           if (done) break
           
           const chunk = decoder.decode(value)
-          accumulatedContent += chunk
+          
+          // Check for citations at the beginning
+          if (!citationsReceived && chunk.includes('__CITATIONS__')) {
+            const citationsMatch = chunk.match(/__CITATIONS__(.*?)__END_CITATIONS__/)
+            if (citationsMatch) {
+              try {
+                citations = JSON.parse(citationsMatch[1])
+                citationsReceived = true
+                // Remove citations from content
+                const contentAfterCitations = chunk.replace(/__CITATIONS__.*?__END_CITATIONS__/, '')
+                accumulatedContent += contentAfterCitations
+              } catch (e) {
+                console.error('Error parsing citations:', e)
+                accumulatedContent += chunk
+              }
+            } else {
+              accumulatedContent += chunk
+            }
+          } else {
+            accumulatedContent += chunk
+          }
           
           // Update the streaming message
           setMessages(prev => prev.map(msg => 
             msg.id === assistantMessageId 
-              ? { ...msg, content: accumulatedContent }
+              ? { ...msg, content: accumulatedContent, citations: citations }
               : msg
           ))
         }
@@ -99,7 +123,7 @@ export function ChatInterface({ user }: ChatInterfaceProps) {
         // Mark streaming as complete
         setMessages(prev => prev.map(msg => 
           msg.id === assistantMessageId 
-            ? { ...msg, isStreaming: false }
+            ? { ...msg, isStreaming: false, citations: citations }
             : msg
         ))
       }
@@ -126,35 +150,47 @@ export function ChatInterface({ user }: ChatInterfaceProps) {
     setMessages([])
   }
 
+  const handleCitationClick = (citation: Citation) => {
+    setSelectedCitation(citation)
+    setShowCitationPanel(true)
+  }
+
+  const closeCitationPanel = () => {
+    setShowCitationPanel(false)
+    setSelectedCitation(null)
+  }
+
   return (
-    <div className="flex flex-col h-screen">
-      {/* Header */}
-      <div className="flex-shrink-0 border-b bg-background p-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-2">
-            <MessageSquare className="h-5 w-5 text-primary" />
-            <h1 className="text-lg font-semibold">IFI Chatbot</h1>
-          </div>
-          
-          <div className="flex items-center space-x-2">
-            <span className="text-sm text-muted-foreground">
-              Welcome, {user.email}
-            </span>
+    <div className="flex h-screen">
+      {/* Main Chat Area */}
+      <div className={`flex flex-col transition-all duration-300 ${showCitationPanel ? 'w-2/3' : 'w-full'}`}>
+        {/* Header */}
+        <div className="flex-shrink-0 border-b bg-background p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <MessageSquare className="h-5 w-5 text-primary" />
+              <h1 className="text-lg font-semibold">IFI Chatbot</h1>
+            </div>
             
-            {messages.length > 0 && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleClearChat}
-                disabled={isLoading}
-              >
-                <Trash2 size={14} className="mr-1" />
-                Clear
-              </Button>
-            )}
+            <div className="flex items-center space-x-2">
+              <span className="text-sm text-muted-foreground">
+                Welcome, {user.email}
+              </span>
+              
+              {messages.length > 0 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleClearChat}
+                  disabled={isLoading}
+                >
+                  <Trash2 size={14} className="mr-1" />
+                  Clear
+                </Button>
+              )}
+            </div>
           </div>
         </div>
-      </div>
 
       {/* Messages Area */}
       <div className="flex-1 overflow-hidden">
@@ -185,6 +221,7 @@ export function ChatInterface({ user }: ChatInterfaceProps) {
                   key={message.id}
                   message={message}
                   isStreaming={message.id === streamingMessageId}
+                  onCitationClick={handleCitationClick}
                 />
               ))}
               <div ref={messagesEndRef} />
@@ -201,6 +238,56 @@ export function ChatInterface({ user }: ChatInterfaceProps) {
           placeholder={isLoading ? "Thinking..." : "Ask me anything about the documents..."}
         />
       </div>
+      </div>
+
+      {/* Citation Panel */}
+      {showCitationPanel && selectedCitation && (
+        <div className="w-1/3 border-l bg-background flex flex-col">
+          {/* Panel Header */}
+          <div className="flex items-center justify-between p-4 border-b">
+            <h3 className="font-semibold">Source Document</h3>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={closeCitationPanel}
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+
+          {/* Citation Content */}
+          <ScrollArea className="flex-1 p-4">
+            <div className="space-y-4">
+              <div>
+                <h4 className="font-medium text-sm text-muted-foreground mb-2">
+                  Document
+                </h4>
+                <p className="text-sm font-medium">{selectedCitation.filename}</p>
+              </div>
+
+              <div>
+                <h4 className="font-medium text-sm text-muted-foreground mb-2">
+                  Relevance Score
+                </h4>
+                <p className="text-sm">
+                  {Math.round(selectedCitation.similarity * 100)}% match
+                </p>
+              </div>
+
+              <div>
+                <h4 className="font-medium text-sm text-muted-foreground mb-2">
+                  Source Text
+                </h4>
+                <div className="bg-muted p-3 rounded-md">
+                  <p className="text-sm leading-relaxed whitespace-pre-wrap">
+                    {selectedCitation.content}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </ScrollArea>
+        </div>
+      )}
     </div>
   )
 }

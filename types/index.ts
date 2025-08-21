@@ -7,6 +7,14 @@ export interface User {
   updated_at: string
 }
 
+// Citation Types
+export interface Citation {
+  id: number
+  filename: string
+  content: string
+  similarity: number
+}
+
 // Chat Types
 export interface ChatMessage {
   id: string
@@ -14,6 +22,7 @@ export interface ChatMessage {
   role: 'user' | 'assistant'
   timestamp: Date
   isStreaming?: boolean
+  citations?: Citation[]
 }
 
 export interface ChatSession {

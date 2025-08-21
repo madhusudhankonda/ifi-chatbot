@@ -31,24 +31,28 @@ export async function POST(request: NextRequest) {
     // Search for similar document chunks
     const similarChunks = await searchSimilarChunks(queryEmbedding, 5)
 
-    // Prepare context from similar chunks
-    const context = similarChunks
-      .map(chunk => `Document: ${chunk.filename}\nContent: ${chunk.content}`)
+    // Prepare context from similar chunks with citations
+    const contextWithCitations = similarChunks
+      .map((chunk, index) => `[${index + 1}] Document: ${chunk.filename}\nContent: ${chunk.content}`)
       .join('\n\n')
 
-    // Prepare system message with context
+    // Prepare system message with enhanced context
     const systemMessage = `You are an AI assistant for International Financial Institutions (IFI). You help users find information from uploaded documents.
 
 Context from relevant documents:
-${context}
+${contextWithCitations}
 
 Instructions:
-- Use the provided context to answer the user's question
-- If the context doesn't contain relevant information, say so clearly
-- Provide accurate, helpful responses based on the document content
-- Format your responses clearly with proper structure
-- If asked about specific documents, reference them by name
-- Be professional and concise`
+- Provide comprehensive, detailed responses based on the document content
+- Always include citations [1], [2], etc. when referencing specific information
+- Use the citation numbers that correspond to the documents provided above
+- Structure your responses with clear sections, bullet points, and detailed explanations
+- If the context doesn't contain sufficient information, say so clearly and suggest what additional information might be needed
+- When discussing policies, procedures, or regulations, provide specific details and context
+- Include relevant background information to help users understand the full picture
+- Be thorough rather than brief - users prefer detailed, informative responses
+- Reference document names when discussing specific sources
+- Format your responses professionally with clear organization`
 
     const messages = [
       { role: 'system' as const, content: systemMessage },
@@ -63,6 +67,14 @@ Instructions:
     // Create streaming response
     const stream = await createStreamingChatCompletion(messages)
 
+    // Create citation metadata
+    const citations = similarChunks.map((chunk, index) => ({
+      id: index + 1,
+      filename: chunk.filename,
+      content: chunk.content,
+      similarity: chunk.similarity
+    }))
+
     // Create a readable stream for the response
     const encoder = new TextEncoder()
     let assistantResponse = ''
@@ -70,6 +82,10 @@ Instructions:
     const readableStream = new ReadableStream({
       async start(controller) {
         try {
+          // Send citations first as a special message
+          const citationsMessage = `__CITATIONS__${JSON.stringify(citations)}__END_CITATIONS__`
+          controller.enqueue(encoder.encode(citationsMessage))
+
           for await (const chunk of stream) {
             const content = chunk.choices[0]?.delta?.content || ''
             if (content) {

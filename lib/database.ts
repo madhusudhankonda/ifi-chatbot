@@ -4,10 +4,35 @@ import { Pool } from 'pg'
 const databaseUrl = process.env.DATABASE_URL
 const hasValidDatabaseConfig = databaseUrl && databaseUrl.startsWith('postgresql://')
 
+function stripSslModeFromConnectionString(connectionString: string): string {
+  try {
+    const parsed = new URL(connectionString)
+    parsed.searchParams.delete('sslmode')
+    return parsed.toString()
+  } catch {
+    return connectionString
+  }
+}
+
+const shouldUseSsl =
+  !!databaseUrl &&
+  (databaseUrl.includes('sslmode=require') ||
+    databaseUrl.includes('.supabase.co') ||
+    process.env.DATABASE_SSL === 'true')
+
+const sslConfig =
+  shouldUseSsl
+    ? {
+        // Supabase pooler/direct connections in local environments can surface
+        // cert-chain trust issues; allow TLS without strict cert validation.
+        rejectUnauthorized: process.env.DATABASE_SSL_REJECT_UNAUTHORIZED === 'true',
+      }
+    : false
+
 const pool = hasValidDatabaseConfig 
   ? new Pool({
-      connectionString: databaseUrl,
-      ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+      connectionString: stripSslModeFromConnectionString(databaseUrl),
+      ssl: sslConfig,
     })
   : null
 
